@@ -1,4 +1,9 @@
 #  coding: utf-8 
+# There are for the date header
+from wsgiref.handlers import format_date_time
+from datetime import datetime
+from time import mktime
+
 import socketserver
 import os
 import mimetypes
@@ -59,7 +64,7 @@ class HTTPRequestHandler():
                 response += "{}: {}\r\n".format(key, value)
 
         # Finally add our body to the reponse
-        response += str(body) + "\r\n\r\n"
+        response += "\r\n" + str(body)
 
 
         return response
@@ -67,10 +72,26 @@ class HTTPRequestHandler():
     def process_request(self):
         """
         This will process the request based on the request type and request path of the class's instance.
+        
+        The date header code is from Florian Bosch here
+        https://stackoverflow.com/questions/225086/rfc-1123-date-representation-in-python
         """
-        # If it's not a get request we return 405
+        # Get the date timestamp
+        now = datetime.now()
+        stamp = mktime(now.timetuple())
+        timestamp =  str(format_date_time(stamp))
+        
+        # Create the response header for the response
+        # These headers SHOULD be used for all requests
+        response_header_response = {
+            "Connection": "close",
+            "Date": timestamp,
+        }
+        
+        # If it's not a GET request return 405
         if self.request_type != "GET":
-            return self._build_response(405)    
+            response_header_response["Content-Length"] = 0
+            return self._build_response(405, headers=response_header_response)    
 
         request_path = WWW_DIR + self.request_path
         # If the request path is a directory then show index.html
@@ -81,17 +102,21 @@ class HTTPRequestHandler():
         realpath = os.path.realpath(request_path)
         # Check if the request path is within /www
         if request_path not in realpath:
+            response_header_response["Content-Length"] = 0
             return self._build_response(404)
         
         try:
-            # Return the content at the path with a 200 code
             with open(realpath, 'r') as file:
-                return self._build_response(200, {"content-type": mimetypes.guess_type(realpath)[0]}, file.read())
+                response_header_response["Content-Length"] = os.path.getsize(realpath)
+                # Return the content at the path with a 200 code
+                return self._build_response(200, {"Content-Type": mimetypes.guess_type(realpath)[0]}, file.read())
         except IsADirectoryError:
             # If the path is a directory then send a redirect response
+            response_header_response["Content-Length"] = 0
             return self._build_response(301, {"Location": self.request_path + "/"})
         except FileNotFoundError:
             # If file is not found return a file not found response
+            response_header_response["Content-Length"] = 0
             return self._build_response(404)
 class MyWebServer(socketserver.BaseRequestHandler):
     
